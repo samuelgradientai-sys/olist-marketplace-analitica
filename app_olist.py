@@ -46,6 +46,24 @@ PALETTE = {
     "muted":     "#64748b",
 }
 
+# Mapeo oficial sigla → nombre de los 27 estados + DF de Brasil
+BR_STATES = {
+    "AC": "Acre", "AL": "Alagoas", "AP": "Amapá", "AM": "Amazonas",
+    "BA": "Bahia", "CE": "Ceará", "DF": "Distrito Federal",
+    "ES": "Espírito Santo", "GO": "Goiás", "MA": "Maranhão",
+    "MT": "Mato Grosso", "MS": "Mato Grosso do Sul", "MG": "Minas Gerais",
+    "PA": "Pará", "PB": "Paraíba", "PR": "Paraná", "PE": "Pernambuco",
+    "PI": "Piauí", "RJ": "Rio de Janeiro", "RN": "Rio Grande do Norte",
+    "RS": "Rio Grande do Sul", "RO": "Rondônia", "RR": "Roraima",
+    "SC": "Santa Catarina", "SP": "São Paulo", "SE": "Sergipe", "TO": "Tocantins",
+}
+
+
+def state_label(sigla: str) -> str:
+    """'RJ' -> 'RJ — Rio de Janeiro'. Si la sigla es desconocida, devuelve solo la sigla."""
+    nombre = BR_STATES.get(sigla)
+    return f"{sigla} — {nombre}" if nombre else sigla
+
 # ─────────────────────────────────────────────────────────────
 # Estilos (CSS — replicado verbatim de APP_7.py para consistencia visual)
 # ─────────────────────────────────────────────────────────────
@@ -439,9 +457,10 @@ with st.sidebar:
     estados = sorted(df_orders["customer_state"].dropna().unique())
     estado_sel = st.multiselect(
         "Estado del cliente", estados, default=[],
-        help="Filtra los pedidos por estado brasileño del comprador (sigla de 2 letras: "
-             "SP = São Paulo, RJ = Río de Janeiro, etc.). Vacío = todos los 27 estados. "
-             "Útil para zoom geográfico.",
+        format_func=state_label,
+        help="Filtra los pedidos por estado brasileño del comprador. Las opciones muestran "
+             "la sigla oficial seguida del nombre (ej. 'RJ — Rio de Janeiro'). "
+             "Vacío = todos los 27 estados. Útil para zoom geográfico.",
     )
 
     cats = sorted(df_orders["primary_category_en"].dropna().unique())
@@ -587,7 +606,7 @@ def render_slice_analysis() -> None:
             if not st_rev.empty:
                 top_st = st_rev.index[0]
                 share = st_rev.iloc[0] / st_rev.sum()
-                st.caption(f"📍 Top estado: **{top_st}** ({share:.0%} del GMV)")
+                st.caption(f"📍 Top estado: **{state_label(top_st)}** ({share:.0%} del GMV)")
 
 
 render_slice_analysis()
@@ -1022,6 +1041,17 @@ else:
     ot_global = df_view["on_time_flag"].mean()
     concentration = share_top5pct if not pd.isna(share_top5pct) else 0.0
 
+    # Mejor categoría por review (si hay >1 categoría con datos)
+    if len(cat_for_lead) > 1:
+        cat_best_review = cat_for_lead.sort_values("review", ascending=False).iloc[0]
+        frase_review = (
+            f" La categoría mejor calificada del slice es "
+            f"<b>{cat_best_review.name}</b> con <b>{cat_best_review['review']:.2f}★</b> "
+            f"de reseña media — un buen modelo a replicar."
+        )
+    else:
+        frase_review = ""
+
     # Frase logística — adaptativa al número de estados en el slice
     states_in_view = df_view["customer_state"].dropna().unique()
     if len(states_in_view) <= 1 and not state_for_risk.empty:
@@ -1032,22 +1062,41 @@ else:
         ot_global_ref = df_orders[df_orders["order_status"].isin(status_sel)]["on_time_flag"].mean() if status_sel else df_orders["on_time_flag"].mean()
         delta_pp = (ot_state - ot_global_ref) * 100
         signo = "por encima" if delta_pp >= 0 else "por debajo"
+        flag_state = "🟢 funciona bien" if ot_state >= ot_global_ref else "🟡 hay espacio de mejora"
         frase_logistica = (
-            f"<b>{only_state}</b> entrega el <b>{ot_state:.1%}</b> de los pedidos a tiempo, "
-            f"<b>{abs(delta_pp):.1f}pp {signo}</b> del promedio global "
-            f"(<b>{ot_global_ref:.1%}</b>), con un retraso promedio de "
+            f"<b>{state_label(only_state)}</b> entrega el <b>{ot_state:.1%}</b> de los pedidos a tiempo "
+            f"({flag_state}, <b>{abs(delta_pp):.1f}pp {signo}</b> del global "
+            f"<b>{ot_global_ref:.1%}</b>), con un retraso promedio de "
             f"<b>{delay_state:.1f}</b> días sobre la fecha estimada."
         )
-    elif not state_for_risk.empty:
-        # Multi-estado: marca el peor y el delta vs media del slice
+    elif len(state_for_risk) >= 2:
+        # Multi-estado: marca peor Y mejor — simetría ganador/perdedor
         state_worst = state_for_risk.index[0]
         ot_worst = state_for_risk.iloc[0]["on_time"]
         delay_worst = state_for_risk.iloc[0]["delay"]
+        state_best = state_for_risk.index[-1]
+        ot_best = state_for_risk.iloc[-1]["on_time"]
+        delay_best = state_for_risk.iloc[-1]["delay"]
+        gap_pp = (ot_best - ot_worst) * 100
+        # Top 3 funcionan bien (cabeza de la cola)
+        top_funcionan = state_for_risk.tail(3).index.tolist()[::-1]  # mejor primero
+        top_funcionan_str = ", ".join(f"<b>{state_label(s)}</b>" for s in top_funcionan)
         frase_logistica = (
-            f"En el frente logístico, <b>{state_worst}</b> presenta la mayor brecha: "
-            f"on-time del <b>{ot_worst:.1%}</b> (vs media del slice de <b>{ot_global:.1%}</b>), "
-            f"arrastrando un retraso promedio de <b>{delay_worst:.1f}</b> días sobre la fecha estimada "
-            f"— candidato directo para renegociar tarifas y SLAs de freight."
+            f"🟢 <b>Estados que funcionan</b>: {top_funcionan_str} — "
+            f"liderado por <b>{state_label(state_best)}</b> con <b>{ot_best:.1%}</b> on-time "
+            f"y entregas <b>{abs(delay_best):.1f}d</b> antes de lo estimado.<br>"
+            f"🟡 <b>Estado a intervenir</b>: <b>{state_label(state_worst)}</b> con <b>{ot_worst:.1%}</b> "
+            f"on-time (brecha de <b>{gap_pp:.1f}pp</b> vs el mejor) — candidato directo "
+            f"para renegociar tarifas y SLAs de freight."
+        )
+    elif not state_for_risk.empty:
+        # Solo 1 estado pasa el umbral
+        only_state = state_for_risk.index[0]
+        ot_state = state_for_risk.iloc[0]["on_time"]
+        flag_state = "🟢 funciona bien" if ot_state >= 0.90 else "🟡 a intervenir"
+        frase_logistica = (
+            f"{flag_state}: <b>{state_label(only_state)}</b> entrega el "
+            f"<b>{ot_state:.1%}</b> de los pedidos a tiempo."
         )
     else:
         frase_logistica = (
@@ -1063,11 +1112,11 @@ else:
     st.markdown(
         f"""
         <div class="insight-box">
-        La categoría <b>{cat_top}</b> lidera el período con
+        🛍 La categoría <b>{cat_top}</b> lidera el período con
         <b>{fmt_money_brl(rev_top)}</b> de GMV y una reseña media de
-        <b>{rev_score_top:.2f}★</b>, marcando el motor comercial del slice.<br><br>
+        <b>{rev_score_top:.2f}★</b>, marcando el motor comercial del slice.{frase_review}<br><br>
         {frase_logistica}<br><br>
-        El <b>5%</b> superior de sellers concentra el <b>{concentration:.0%}</b> del GMV,
+        🏗 El <b>5%</b> superior de sellers concentra el <b>{concentration:.0%}</b> del GMV,
         evidenciando un riesgo de dependencia que conviene diversificar mediante
         captación activa en el long-tail.<br><br>
         {verdict_emoji} <b>Veredicto:</b> la operación está {verdict_txt}
