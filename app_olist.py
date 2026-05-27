@@ -413,16 +413,23 @@ with st.sidebar:
 
     min_date = pd.Timestamp("2017-01-01").date()
     max_date = pd.Timestamp("2018-08-31").date()
-    rango = st.date_input(
-        "Período",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-    )
-    if isinstance(rango, tuple) and len(rango) == 2:
-        date_start, date_end = pd.Timestamp(rango[0]), pd.Timestamp(rango[1])
-    else:
-        date_start, date_end = pd.Timestamp(min_date), pd.Timestamp(max_date)
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        start_in = st.date_input(
+            "Desde", value=min_date,
+            min_value=min_date, max_value=max_date,
+            format="YYYY-MM-DD",
+        )
+    with col_d2:
+        end_in = st.date_input(
+            "Hasta", value=max_date,
+            min_value=min_date, max_value=max_date,
+            format="YYYY-MM-DD",
+        )
+    date_start, date_end = pd.Timestamp(start_in), pd.Timestamp(end_in)
+    if date_end < date_start:
+        st.warning("La fecha 'Hasta' es anterior a 'Desde'. Se invierte el orden.")
+        date_start, date_end = date_end, date_start
 
     estados = sorted(df_orders["customer_state"].dropna().unique())
     estado_sel = st.multiselect("Estado del cliente", estados, default=[])
