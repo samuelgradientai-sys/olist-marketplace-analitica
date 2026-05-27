@@ -1,0 +1,31 @@
+MIT License (código)
+
+Copyright (c) 2026 Samuel Gómez
+
+Se concede permiso, libre de cargos, a cualquier persona que obtenga una copia
+de este software y de los archivos de documentación asociados (el "Software"),
+a utilizar el Software sin restricción, incluyendo sin limitación los derechos
+a usar, copiar, modificar, fusionar, publicar, distribuir, sublicenciar y/o
+vender copias del Software, y a permitir a las personas a las que se les
+proporcione el Software a hacer lo mismo, sujeto a las siguientes condiciones:
+
+El aviso de copyright anterior y este aviso de permiso se incluirán en todas
+las copias o partes sustanciales del Software.
+
+EL SOFTWARE SE PROPORCIONA "COMO ESTÁ", SIN GARANTÍA DE NINGÚN TIPO.
+
+---
+
+Datos (dataset Olist)
+=====================
+El dataset incluido en `data/olist/` es el **Brazilian E-Commerce Public Dataset
+by Olist**, publicado por Olist Store bajo licencia **Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**.
+
+Fuente oficial: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce
+Texto completo de la licencia: https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+Cualquier uso, redistribución o trabajo derivado del dataset debe:
+- Atribuir a Olist Store.
+- Ser de uso no comercial.
+- Distribuirse bajo la misma licencia CC BY-NC-SA 4.0.
