@@ -990,12 +990,17 @@ with tab3:
 # ─────────────────────────────────────────────────────────────
 st.markdown('<div class="section-title">Lectura analítica</div>', unsafe_allow_html=True)
 
-# Cálculos para narrativa
+# Umbrales adaptativos — se reducen si el slice es chico para que la narrativa
+# siga funcionando incluso con filtros narrow (ej. un estado con pocos pedidos).
+n_view = len(df_view)
+min_cat_orders = max(1, min(20, n_view // 50))
+min_state_orders = max(1, min(50, n_view // 20))
+
 cat_for_lead = (
     df_view.dropna(subset=["primary_category_en"])
     .groupby("primary_category_en")
     .agg(gmv=("revenue", "sum"), review=("review_score", "mean"), orders=("order_id", "nunique"))
-    .query("orders >= 20")
+    .query(f"orders >= {min_cat_orders}")
     .sort_values("gmv", ascending=False)
 )
 state_for_risk = (
@@ -1004,21 +1009,51 @@ state_for_risk = (
     .agg(on_time=("on_time_flag", "mean"),
          delay=("delivery_delay_days", "mean"),
          n=("order_id", "nunique"))
-    .query("n >= 50")
+    .query(f"n >= {min_state_orders}")
     .sort_values("on_time")
 )
 
-if not cat_for_lead.empty and not state_for_risk.empty:
+if cat_for_lead.empty:
+    st.info("Sin datos suficientes para la lectura analítica con los filtros actuales.")
+else:
     cat_top = cat_for_lead.index[0]
     rev_top = cat_for_lead.iloc[0]["gmv"]
     rev_score_top = cat_for_lead.iloc[0]["review"]
-
-    state_worst = state_for_risk.index[0]
-    ot_worst = state_for_risk.iloc[0]["on_time"]
-    delay_worst = state_for_risk.iloc[0]["delay"]
     ot_global = df_view["on_time_flag"].mean()
-
     concentration = share_top5pct if not pd.isna(share_top5pct) else 0.0
+
+    # Frase logística — adaptativa al número de estados en el slice
+    states_in_view = df_view["customer_state"].dropna().unique()
+    if len(states_in_view) <= 1 and not state_for_risk.empty:
+        # Slice de un solo estado: comparamos ESE estado vs el global del dataset
+        only_state = state_for_risk.index[0]
+        ot_state = state_for_risk.iloc[0]["on_time"]
+        delay_state = state_for_risk.iloc[0]["delay"]
+        ot_global_ref = df_orders[df_orders["order_status"].isin(status_sel)]["on_time_flag"].mean() if status_sel else df_orders["on_time_flag"].mean()
+        delta_pp = (ot_state - ot_global_ref) * 100
+        signo = "por encima" if delta_pp >= 0 else "por debajo"
+        frase_logistica = (
+            f"<b>{only_state}</b> entrega el <b>{ot_state:.1%}</b> de los pedidos a tiempo, "
+            f"<b>{abs(delta_pp):.1f}pp {signo}</b> del promedio global "
+            f"(<b>{ot_global_ref:.1%}</b>), con un retraso promedio de "
+            f"<b>{delay_state:.1f}</b> días sobre la fecha estimada."
+        )
+    elif not state_for_risk.empty:
+        # Multi-estado: marca el peor y el delta vs media del slice
+        state_worst = state_for_risk.index[0]
+        ot_worst = state_for_risk.iloc[0]["on_time"]
+        delay_worst = state_for_risk.iloc[0]["delay"]
+        frase_logistica = (
+            f"En el frente logístico, <b>{state_worst}</b> presenta la mayor brecha: "
+            f"on-time del <b>{ot_worst:.1%}</b> (vs media del slice de <b>{ot_global:.1%}</b>), "
+            f"arrastrando un retraso promedio de <b>{delay_worst:.1f}</b> días sobre la fecha estimada "
+            f"— candidato directo para renegociar tarifas y SLAs de freight."
+        )
+    else:
+        frase_logistica = (
+            f"Sin datos de entrega suficientes para evaluar la logística en este slice "
+            f"(se requieren al menos {min_state_orders} pedidos delivered por estado)."
+        )
 
     verdict_emoji = "🟢" if ot_global and ot_global >= 0.90 else "🟡"
     verdict_txt = ("operativa por encima del benchmark del 90%."
@@ -1030,11 +1065,8 @@ if not cat_for_lead.empty and not state_for_risk.empty:
         <div class="insight-box">
         La categoría <b>{cat_top}</b> lidera el período con
         <b>{fmt_money_brl(rev_top)}</b> de GMV y una reseña media de
-        <b>{rev_score_top:.2f}★</b>, marcando el motor comercial del marketplace.<br><br>
-        En el frente logístico, <b>{state_worst}</b> presenta la mayor brecha:
-        on-time del <b>{ot_worst:.1%}</b> (vs media global de <b>{ot_global:.1%}</b>),
-        arrastrando un retraso promedio de <b>{delay_worst:.1f}</b> días sobre la
-        fecha estimada — candidato directo para renegociar tarifas y SLAs de freight.<br><br>
+        <b>{rev_score_top:.2f}★</b>, marcando el motor comercial del slice.<br><br>
+        {frase_logistica}<br><br>
         El <b>5%</b> superior de sellers concentra el <b>{concentration:.0%}</b> del GMV,
         evidenciando un riesgo de dependencia que conviene diversificar mediante
         captación activa en el long-tail.<br><br>
@@ -1049,5 +1081,3 @@ if not cat_for_lead.empty and not state_for_risk.empty:
         """,
         unsafe_allow_html=True,
     )
-else:
-    st.info("Filtros muy restrictivos: amplía el rango o quita filtros para ver la lectura analítica.")
