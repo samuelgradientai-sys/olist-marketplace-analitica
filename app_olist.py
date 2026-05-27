@@ -484,6 +484,114 @@ def apply_mask(df: pd.DataFrame, ts_col: str, state_col: str, cat_col: str | Non
 df_view = apply_mask(df_orders, "order_purchase_timestamp", "customer_state", "primary_category_en")
 df_items_view = apply_mask(df_items, "order_purchase_timestamp", "customer_state", "category_en")
 
+
+# ─────────────────────────────────────────────────────────────
+# Análisis del slice (sidebar dinámico — debajo de los filtros)
+# ─────────────────────────────────────────────────────────────
+def render_slice_analysis() -> None:
+    """Compara el slice filtrado vs el universo global del mismo order_status."""
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown(
+            "<div style='font-size:0.72rem;text-transform:uppercase;"
+            "letter-spacing:0.18em;color:#818cf8;font-weight:600;margin-bottom:6px;'>"
+            "🔍 Análisis del slice</div>",
+            unsafe_allow_html=True,
+        )
+
+        n_view = len(df_view)
+        pct_view = n_view / max(len(df_orders), 1)
+        st.caption(f"**{n_view:,}** pedidos · {pct_view:.1%} del total")
+
+        if n_view == 0:
+            st.caption("⚠️ Sin pedidos para los filtros actuales.")
+            return
+
+        # Referencia global: mismo order_status pero sin filtros geográficos/categóricos/de fecha
+        ref = df_orders[df_orders["order_status"].isin(status_sel)] if status_sel else df_orders
+        if len(ref) == 0:
+            ref = df_orders
+
+        def arrow_pp(delta_pp: float) -> str:
+            return "↑" if delta_pp > 0.5 else ("↓" if delta_pp < -0.5 else "≈")
+
+        def arrow_pct(delta: float) -> str:
+            return "↑" if delta > 0.02 else ("↓" if delta < -0.02 else "≈")
+
+        # 💳 Método de pago dominante
+        pay_local = df_view["payment_type"].value_counts(normalize=True).dropna()
+        pay_ref = ref["payment_type"].value_counts(normalize=True).dropna()
+        if not pay_local.empty:
+            top_pay = pay_local.idxmax()
+            share_local = pay_local.iloc[0]
+            share_ref = pay_ref.get(top_pay, 0)
+            delta_pp = (share_local - share_ref) * 100
+            st.caption(
+                f"💳 **{top_pay}** {share_local:.0%} "
+                f"({arrow_pp(delta_pp)} {abs(delta_pp):.0f}pp vs global)"
+            )
+
+        # 🎯 Ticket promedio
+        n_loc = df_view["order_id"].nunique()
+        n_ref = ref["order_id"].nunique()
+        if n_loc and n_ref:
+            ticket_local = df_view["revenue"].sum() / n_loc
+            ticket_ref = ref["revenue"].sum() / n_ref
+            delta = (ticket_local - ticket_ref) / ticket_ref if ticket_ref else 0
+            st.caption(
+                f"🎯 Ticket **{fmt_money_brl(ticket_local)}** "
+                f"({arrow_pct(delta)} {abs(delta):.0%} vs global)"
+            )
+
+        # 🚚 On-time delivery
+        ot_local = df_view["on_time_flag"].mean()
+        ot_ref = ref["on_time_flag"].mean()
+        if pd.notna(ot_local) and pd.notna(ot_ref):
+            delta_pp = (ot_local - ot_ref) * 100
+            flag = "🟢" if ot_local >= 0.90 else "🟡"
+            st.caption(
+                f"🚚 On-time **{ot_local:.0%}** {flag} "
+                f"({arrow_pp(delta_pp)} {abs(delta_pp):.0f}pp vs global)"
+            )
+
+        # ⭐ Review medio
+        rv_local = df_view["review_score"].mean()
+        rv_ref = ref["review_score"].mean()
+        if pd.notna(rv_local) and pd.notna(rv_ref):
+            delta = rv_local - rv_ref
+            arrow = "↑" if delta > 0.05 else ("↓" if delta < -0.05 else "≈")
+            st.caption(
+                f"⭐ Review **{rv_local:.2f}** "
+                f"({arrow} {abs(delta):.2f} vs {rv_ref:.2f} global)"
+            )
+
+        # 🛍 Categoría líder (solo si no filtraste por categoría)
+        if not cat_sel:
+            cat_rev = (
+                df_view.dropna(subset=["primary_category_en"])
+                .groupby("primary_category_en")["revenue"].sum()
+                .sort_values(ascending=False)
+            )
+            if not cat_rev.empty:
+                top_cat = cat_rev.index[0]
+                share = cat_rev.iloc[0] / cat_rev.sum()
+                st.caption(f"🛍 Top categoría: **{top_cat}** ({share:.0%} del GMV)")
+
+        # 📍 Estado líder (solo si no filtraste por estado)
+        if not estado_sel:
+            st_rev = (
+                df_view.dropna(subset=["customer_state"])
+                .groupby("customer_state")["revenue"].sum()
+                .sort_values(ascending=False)
+            )
+            if not st_rev.empty:
+                top_st = st_rev.index[0]
+                share = st_rev.iloc[0] / st_rev.sum()
+                st.caption(f"📍 Top estado: **{top_st}** ({share:.0%} del GMV)")
+
+
+render_slice_analysis()
+
 # Período anterior (mismo largo, inmediatamente previo) para deltas
 window = date_end - date_start
 prev_start = date_start - window - pd.Timedelta(days=1)
