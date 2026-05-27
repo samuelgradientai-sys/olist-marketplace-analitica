@@ -419,12 +419,17 @@ with st.sidebar:
             "Desde", value=min_date,
             min_value=min_date, max_value=max_date,
             format="YYYY-MM-DD",
+            help="Fecha inicial del análisis. El dataset cubre Sep 2016 - Oct 2018, "
+                 "pero limitamos al rango Ene 2017 - Ago 2018 porque los meses extremos "
+                 "tienen cobertura parcial y distorsionan las series temporales.",
         )
     with col_d2:
         end_in = st.date_input(
             "Hasta", value=max_date,
             min_value=min_date, max_value=max_date,
             format="YYYY-MM-DD",
+            help="Fecha final del análisis. Filtra por `order_purchase_timestamp` "
+                 "(fecha de compra del pedido).",
         )
     date_start, date_end = pd.Timestamp(start_in), pd.Timestamp(end_in)
     if date_end < date_start:
@@ -432,13 +437,29 @@ with st.sidebar:
         date_start, date_end = date_end, date_start
 
     estados = sorted(df_orders["customer_state"].dropna().unique())
-    estado_sel = st.multiselect("Estado del cliente", estados, default=[])
+    estado_sel = st.multiselect(
+        "Estado del cliente", estados, default=[],
+        help="Filtra los pedidos por estado brasileño del comprador (sigla de 2 letras: "
+             "SP = São Paulo, RJ = Río de Janeiro, etc.). Vacío = todos los 27 estados. "
+             "Útil para zoom geográfico.",
+    )
 
     cats = sorted(df_orders["primary_category_en"].dropna().unique())
-    cat_sel = st.multiselect("Categoría principal", cats, default=[])
+    cat_sel = st.multiselect(
+        "Categoría principal", cats, default=[],
+        help="Filtra por categoría dominante del pedido (en inglés, traducida del "
+             "portugués). Si un pedido tiene varios productos, se usa la categoría "
+             "que más se repite. Vacío = todas las categorías.",
+    )
 
     statuses = sorted(df_orders["order_status"].dropna().unique())
-    status_sel = st.multiselect("Estado del pedido", statuses, default=["delivered"])
+    status_sel = st.multiselect(
+        "Estado del pedido", statuses, default=["delivered"],
+        help="Estado del ciclo de vida del pedido: delivered = entregado al cliente, "
+             "shipped = en tránsito, canceled = cancelado, etc. Por defecto solo "
+             "'delivered' para ver 'negocio cerrado'. Si lo quitas, los KPIs incluyen "
+             "cancelaciones y pedidos en proceso.",
+    )
 
     st.markdown("---")
     st.caption(f"Pedidos totales: **{len(df_orders):,}**")
